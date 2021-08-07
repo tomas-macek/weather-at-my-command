@@ -2,6 +2,8 @@
 const char* ssid     = "xxx";
 const char* password = "xxx";
 
+// Think speak registration https://thingspeak.com/ users/sign_up is needed to upload 
+//   measured data there
 const char* THINGSPEAK_API_KEY = "xxx";
 
 // OpenWeatherMap Settings
