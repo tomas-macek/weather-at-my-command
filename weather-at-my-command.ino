@@ -88,6 +88,11 @@ const String MONTH_NAMES[] = {"LED", "UNO", "BRE", "DUB", "KVE", "CE1", "CE2", "
 /***************************
  * Mapping pins and fixed configuration
  **************************/
+// Button
+#define BUTTON D5
+#define LONG_PRESS_DURATION 1000L   // min. duration of the long press in miliseconds (switchin display mode)
+#define SHORT_PRESS_DURATION 100L   // min. duration of the short press in miliseconds (next frame)
+ 
 // DHT11
 #define DHTPIN D6     
 #define DHTTYPE DHTesp::DHT11   // DHT 11
@@ -100,6 +105,11 @@ const int SDC_PIN = D4;
 /***************************
  * Global definitions
  **************************/ 
+ 
+bool btnPressed = HIGH;       // button state (LOW-pressed)
+long timePressed = millis();  //recent time of changing state of the button
+int displayMode = 0;  // 0 ... rotate frames, 1 ... short click switching 
+
 DHTesp dht11;               // Temperature-humidity sensor DHT11
 BH1750 bh1750(0x23);  // Light meeter BH1750
 Adafruit_BMP280 bmp280; // use I2C interface
@@ -412,6 +422,8 @@ void setup() {
   Serial.begin(115200);
   delay(10);
 
+  pinMode(BUTTON, INPUT_PULLUP);
+
   // Initialize dispaly
   Serial.println(); Serial.println(); Serial.println("Init display. ");
   display.init();
@@ -478,7 +490,7 @@ void setup() {
   updateData(&display); // Get time, current weather and weather forecast from open weather map
   updateDHT11();        // Make first measurements
   updateBH1750();
-  //updateBMP280();
+  //updateBMP280();     // This measures but resets controller for some reason not clear to me yet. It seems like conflict with UI library?
 
   timeSinceLastWUpdate= millis();
   timeSinceMeasured  = millis();
@@ -494,21 +506,60 @@ void setReadyForWeatherUpdate() {
   readyForWeatherUpdate = true;
 }
 
-void loop() {   
+void loop() { 
+  // Handle button
+  int temp = digitalRead( BUTTON );
+  long pressDuration = millis() - timePressed;
+  if ( digitalRead( BUTTON ) == LOW) {
+     if ((btnPressed == HIGH) and (pressDuration > SHORT_PRESS_DURATION)){
+      btnPressed = LOW; 
+      timePressed = millis(); 
+     }
+   }else{
+      if ((btnPressed == LOW) and (pressDuration > SHORT_PRESS_DURATION) and (pressDuration < LONG_PRESS_DURATION)){
+       // reaction to short release
+      Serial.println("##### it was short press"); 
+      btnPressed = HIGH;         
+      timePressed = millis(); 
+
+      ui.nextFrame();
+     }
+     if ((btnPressed == LOW) and (pressDuration > LONG_PRESS_DURATION)){
+       // reaction to long release
+      Serial.println("##### it was long press"); 
+      btnPressed = HIGH;         
+      timePressed = millis();
+
+      if (displayMode){
+        displayMode = 0;
+        ui.enableAutoTransition();
+        ui.setTimePerFrame(TIME_PER_FRAME);
+      }else{
+        displayMode = 1;
+        ui.disableAutoTransition();  // no other frames amart of measurements make sense 
+      }
+   
+     }
+  }
+
+  // Handle local sensors
   if (millis() - timeSinceMeasured > (1000L * UPDATE_MEASURE)) { // Time measured since last weather information download from a service (Open weather map)
     Serial.println("****** Measuring");
     updateDHT11();
     updateBH1750();
-    //updateBMP280();
+    //updateBMP280();      // This measures but resets controller for some reason not clear to me yet. It seems like conflict with UI library?
+
     timeSinceMeasured  = millis();
   }
 
+  // Handle ThinkSpeak updates
   if (millis() - timeSinceUpdateThinkSpeak > (1000L * UPLOAD_MEASURE)) { // Time since last weather information download from a service (Open weather map)
     Serial.println("****** updateThinkSpeak");
     updateThinkSpeak();
     timeSinceUpdateThinkSpeak  = millis();
   }
   
+  // Handle weather info updates
   if (millis() - timeSinceLastWUpdate > (1000L * UPDATE_INTERVAL_SECS)) {
     Serial.println("****** setReadyForWeatherUpdate");
     setReadyForWeatherUpdate();
