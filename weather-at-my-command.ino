@@ -411,6 +411,8 @@ void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState* state) {
 void setup() {  
   Serial.begin(115200);
   delay(10);
+  pinMode(D5, INPUT_PULLUP);
+
 
   // Initialize dispaly
   Serial.println(); Serial.println(); Serial.println("Init display. ");
@@ -478,7 +480,7 @@ void setup() {
   updateData(&display); // Get time, current weather and weather forecast from open weather map
   updateDHT11();        // Make first measurements
   updateBH1750();
-  //updateBMP280();
+  //updateBMP280();     // This measures but resets controller for some reason not clear to me yet. It seems like conflict with UI library?
 
   timeSinceLastWUpdate= millis();
   timeSinceMeasured  = millis();
@@ -494,12 +496,53 @@ void setReadyForWeatherUpdate() {
   readyForWeatherUpdate = true;
 }
 
-void loop() {   
+bool btnPressed = HIGH;
+long timePressed = millis();
+int displayMode = 0; // 0 ... rotate frames, 1 ... short click switching 
+
+void loop() { 
+  // Handle buttong hanging between D5 and ground
+  int temp = digitalRead( D5 );
+  long pressDuration = millis() - timePressed;
+  if ( digitalRead( D5 ) == LOW) {
+     if ((btnPressed == HIGH) and (pressDuration > 100L)){
+      btnPressed = LOW; 
+      timePressed = millis(); 
+     }
+   }else{
+      if ((btnPressed == LOW) and (pressDuration > 100L) and (pressDuration < 1000L)){
+       // reaction to short release
+      Serial.println("##### it was short LOW"); 
+      btnPressed = HIGH;         
+      timePressed = millis(); 
+
+      ui.nextFrame();
+     }
+     if ((btnPressed == LOW) and (pressDuration > 1000L)){
+       // reaction to long release
+      Serial.println("##### it was long LOW"); 
+      btnPressed = HIGH;         
+      timePressed = millis();
+
+      if (displayMode){
+        displayMode = 0;
+        ui.enableAutoTransition();
+        ui.setTimePerFrame(TIME_PER_FRAME);
+      }else{
+        displayMode = 1;
+        ui.disableAutoTransition();  // no other frames amart of measurements make sense 
+      }
+   
+     }
+  }
+
+  // Handle local sensors
   if (millis() - timeSinceMeasured > (1000L * UPDATE_MEASURE)) { // Time measured since last weather information download from a service (Open weather map)
     Serial.println("****** Measuring");
     updateDHT11();
     updateBH1750();
-    //updateBMP280();
+    //updateBMP280();      // This measures but resets controller for some reason not clear to me yet. It seems like conflict with UI library?
+
     timeSinceMeasured  = millis();
   }
 
