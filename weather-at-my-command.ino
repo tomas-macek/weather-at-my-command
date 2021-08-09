@@ -88,6 +88,11 @@ const String MONTH_NAMES[] = {"LED", "UNO", "BRE", "DUB", "KVE", "CE1", "CE2", "
 /***************************
  * Mapping pins and fixed configuration
  **************************/
+// Button
+#define BUTTON D5
+#define LONG_PRESS_DURATION 1000L   // min. duration of the long press in miliseconds (switchin display mode)
+#define SHORT_PRESS_DURATION 100L   // min. duration of the short press in miliseconds (next frame)
+ 
 // DHT11
 #define DHTPIN D6     
 #define DHTTYPE DHTesp::DHT11   // DHT 11
@@ -100,6 +105,11 @@ const int SDC_PIN = D4;
 /***************************
  * Global definitions
  **************************/ 
+ 
+bool btnPressed = HIGH;       // button state (LOW-pressed)
+long timePressed = millis();  //recent time of changing state of the button
+int displayMode = 0;  // 0 ... rotate frames, 1 ... short click switching 
+
 DHTesp dht11;               // Temperature-humidity sensor DHT11
 BH1750 bh1750(0x23);  // Light meeter BH1750
 Adafruit_BMP280 bmp280; // use I2C interface
@@ -411,8 +421,8 @@ void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState* state) {
 void setup() {  
   Serial.begin(115200);
   delay(10);
-  pinMode(D5, INPUT_PULLUP);
 
+  pinMode(BUTTON, INPUT_PULLUP);
 
   // Initialize dispaly
   Serial.println(); Serial.println(); Serial.println("Init display. ");
@@ -496,31 +506,27 @@ void setReadyForWeatherUpdate() {
   readyForWeatherUpdate = true;
 }
 
-bool btnPressed = HIGH;
-long timePressed = millis();
-int displayMode = 0; // 0 ... rotate frames, 1 ... short click switching 
-
 void loop() { 
-  // Handle buttong hanging between D5 and ground
-  int temp = digitalRead( D5 );
+  // Handle button
+  int temp = digitalRead( BUTTON );
   long pressDuration = millis() - timePressed;
-  if ( digitalRead( D5 ) == LOW) {
-     if ((btnPressed == HIGH) and (pressDuration > 100L)){
+  if ( digitalRead( BUTTON ) == LOW) {
+     if ((btnPressed == HIGH) and (pressDuration > SHORT_PRESS_DURATION)){
       btnPressed = LOW; 
       timePressed = millis(); 
      }
    }else{
-      if ((btnPressed == LOW) and (pressDuration > 100L) and (pressDuration < 1000L)){
+      if ((btnPressed == LOW) and (pressDuration > SHORT_PRESS_DURATION) and (pressDuration < LONG_PRESS_DURATION)){
        // reaction to short release
-      Serial.println("##### it was short LOW"); 
+      Serial.println("##### it was short press"); 
       btnPressed = HIGH;         
       timePressed = millis(); 
 
       ui.nextFrame();
      }
-     if ((btnPressed == LOW) and (pressDuration > 1000L)){
+     if ((btnPressed == LOW) and (pressDuration > LONG_PRESS_DURATION)){
        // reaction to long release
-      Serial.println("##### it was long LOW"); 
+      Serial.println("##### it was long press"); 
       btnPressed = HIGH;         
       timePressed = millis();
 
@@ -546,12 +552,14 @@ void loop() {
     timeSinceMeasured  = millis();
   }
 
+  // Handle ThinkSpeak updates
   if (millis() - timeSinceUpdateThinkSpeak > (1000L * UPLOAD_MEASURE)) { // Time since last weather information download from a service (Open weather map)
     Serial.println("****** updateThinkSpeak");
     updateThinkSpeak();
     timeSinceUpdateThinkSpeak  = millis();
   }
   
+  // Handle weather info updates
   if (millis() - timeSinceLastWUpdate > (1000L * UPDATE_INTERVAL_SECS)) {
     Serial.println("****** setReadyForWeatherUpdate");
     setReadyForWeatherUpdate();
