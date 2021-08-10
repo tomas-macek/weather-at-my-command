@@ -214,7 +214,7 @@ void updateBMP280() {
   if (!initializedBMP280){
     Serial.println("****** Initializing BMP280");
 
-    Wire.begin(D3, D4);  // Initialize BMP280
+    Wire.begin(SDA_PIN, SDC_PIN);  // Initialize BMP280
     if (!bmp280.begin(0x76)) {
       Serial.println(F("Could not find a valid BMP280 sensor!"));
       initializedBMP280 = false;
@@ -420,7 +420,7 @@ void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState* state) {
 //*********************************************************     
 void setup() {  
   Serial.begin(115200);
-  delay(10);
+  delay(100);
 
   pinMode(BUTTON, INPUT_PULLUP);
 
@@ -506,8 +506,8 @@ void setReadyForWeatherUpdate() {
   readyForWeatherUpdate = true;
 }
 
-void loop() { 
-  // Handle button
+void loopButton(){
+  // Handle button pess
   int temp = digitalRead( BUTTON );
   long pressDuration = millis() - timePressed;
   if ( digitalRead( BUTTON ) == LOW) {
@@ -516,20 +516,21 @@ void loop() {
       timePressed = millis(); 
      }
    }else{
-      if ((btnPressed == LOW) and (pressDuration > SHORT_PRESS_DURATION) and (pressDuration < LONG_PRESS_DURATION)){
-       // reaction to short release
-      Serial.println("##### it was short press"); 
+     if ((btnPressed == LOW) and (pressDuration > SHORT_PRESS_DURATION) and (pressDuration < LONG_PRESS_DURATION)){
+      // reaction to short 
+      //Serial.println("##### it was short press"); 
       btnPressed = HIGH;         
       timePressed = millis(); 
-
+      // Do what you have to do in response to short click
       ui.nextFrame();
      }
      if ((btnPressed == LOW) and (pressDuration > LONG_PRESS_DURATION)){
-       // reaction to long release
-      Serial.println("##### it was long press"); 
+       // reaction to long 
+      //Serial.println("##### it was long press"); 
       btnPressed = HIGH;         
       timePressed = millis();
 
+      // Do what you have to do in response to long press:
       if (displayMode){
         displayMode = 0;
         ui.enableAutoTransition();
@@ -541,6 +542,11 @@ void loop() {
    
      }
   }
+}
+
+void loop() { 
+
+  loopButton();
 
   // Handle local sensors
   if (millis() - timeSinceMeasured > (1000L * UPDATE_MEASURE)) { // Time measured since last weather information download from a service (Open weather map)
@@ -551,13 +557,13 @@ void loop() {
 
     timeSinceMeasured  = millis();
   }
-
   // Handle ThinkSpeak updates
   if (millis() - timeSinceUpdateThinkSpeak > (1000L * UPLOAD_MEASURE)) { // Time since last weather information download from a service (Open weather map)
     Serial.println("****** updateThinkSpeak");
     updateThinkSpeak();
     timeSinceUpdateThinkSpeak  = millis();
   }
+
   
   // Handle weather info updates
   if (millis() - timeSinceLastWUpdate > (1000L * UPDATE_INTERVAL_SECS)) {
@@ -572,9 +578,11 @@ void loop() {
   }
 
   int remainingTimeBudget = ui.update();
+  
   if (remainingTimeBudget > 0) {
     // You can do some work here    
     //Serial.println("remainingTimeBudget="+String(remainingTimeBudget));
     delay(remainingTimeBudget);
   }
+  
 }
