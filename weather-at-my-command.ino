@@ -112,7 +112,7 @@ int displayMode = 0;  // 0 ... rotate frames, 1 ... short click switching
 
 DHTesp dht11;               // Temperature-humidity sensor DHT11
 BH1750 bh1750(0x23);  // Light meeter BH1750
-Adafruit_BMP280 bmp280; // use I2C interface
+Adafruit_BMP280 bmp280(&Wire); // use I2C interface
 Adafruit_Sensor *temperatureBMP280 = bmp280.getTemperatureSensor();
 Adafruit_Sensor *pressureBMP280 = bmp280.getPressureSensor();
 
@@ -120,7 +120,7 @@ Adafruit_Sensor *pressureBMP280 = bmp280.getPressureSensor();
 SSD1306Wire     display(I2C_DISPLAY_ADDRESS, SDA_PIN, SDC_PIN);
 OLEDDisplayUi   ui( &display );
 
-// variables to hold measured balues by sensors
+// Variables to hold measured values 
 float humidityDHT11 = 0.0;
 float temperatureDHT11 = 0.0;
 float luxBH1750 = 0.0;
@@ -214,7 +214,6 @@ void updateBMP280() {
   if (!initializedBMP280){
     Serial.println("****** Initializing BMP280");
 
-    Wire.begin(SDA_PIN, SDC_PIN);  // Initialize BMP280
     if (!bmp280.begin(0x76)) {
       Serial.println(F("Could not find a valid BMP280 sensor!"));
       initializedBMP280 = false;
@@ -223,7 +222,7 @@ void updateBMP280() {
       Serial.println(F("BMP280 sensor initialized")); 
       initializedBMP280 = true;
       // Default settings from datasheet. 
-      /*
+      
       bmp280.setSampling(Adafruit_BMP280::MODE_NORMAL,     // Operating Mode. 
                       Adafruit_BMP280::SAMPLING_X2,     // Temp. oversampling 
                       Adafruit_BMP280::SAMPLING_X16,    // Pressure oversampling 
@@ -231,7 +230,7 @@ void updateBMP280() {
                       Adafruit_BMP280::STANDBY_MS_500); // Standby time. 
                       
       temperatureBMP280->printSensorDetails();
-      */
+      
     }  
   }
   temperatureBMP280->getEvent(&temperatureEventBMP280);
@@ -363,6 +362,7 @@ void drawForecast(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, in
 
 void drawMeasured(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
   // Draw all the measured values to a single frame
+  
   Serial.println("Temperature DHT11: " + String(temperatureDHT11) + (IS_METRIC ? "°C" : "°F"));
   Serial.println("Light: " + String(luxBH1750, 1) + " lx");
   Serial.println("Humidity: " + String(humidityDHT11, 1) +"%");
@@ -380,6 +380,7 @@ void drawMeasured(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, in
   display->drawString(x + 64, 5 + y, String(temperatureEventBMP280.temperature) + (IS_METRIC ? "°C" : "°F"));
   display->drawString(x + 64, 20 + y, String(pressureEventBMP280.pressure) +"hPa");
   //display->drawString(x + 64, 35 + y, String(0) +"--");
+  
 }
 
 void drawForecastDetails(OLEDDisplay *display, int x, int y, int dayIndex) {
@@ -421,6 +422,7 @@ void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState* state) {
 void setup() {  
   Serial.begin(115200);
   delay(100);
+  Wire.begin(SDA_PIN, SDC_PIN);  // Initialize BMP280
 
   pinMode(BUTTON, INPUT_PULLUP);
 
@@ -495,12 +497,15 @@ void setup() {
   timeSinceLastWUpdate= millis();
   timeSinceMeasured  = millis();
   timeSinceUpdateThinkSpeak  = millis();
+
+  display.clear();
+  display.display();
+
 }
 
 //*********************************************************
 //***************** LOOP
 //*********************************************************
-
 void setReadyForWeatherUpdate() {
   Serial.println("Setting readyForUpdate to true");
   readyForWeatherUpdate = true;
@@ -543,7 +548,7 @@ void loopButton(){
      }
   }
 }
-
+  
 void loop() { 
 
   loopButton();
@@ -564,7 +569,6 @@ void loop() {
     timeSinceUpdateThinkSpeak  = millis();
   }
 
-  
   // Handle weather info updates
   if (millis() - timeSinceLastWUpdate > (1000L * UPDATE_INTERVAL_SECS)) {
     Serial.println("****** setReadyForWeatherUpdate");
@@ -578,11 +582,9 @@ void loop() {
   }
 
   int remainingTimeBudget = ui.update();
-  
   if (remainingTimeBudget > 0) {
     // You can do some work here    
     //Serial.println("remainingTimeBudget="+String(remainingTimeBudget));
     delay(remainingTimeBudget);
-  }
-  
+  } 
 }
