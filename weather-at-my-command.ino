@@ -39,7 +39,7 @@ SOFTWARE.
 #include <coredecls.h>                  // settimeofday_cb()
 // OLED
 #include "SSD1306Wire.h"
-#include "OLEDDisplayUi.h"
+
 // Services
 #include "OpenWeatherMapCurrent.h"
 #include "OpenWeatherMapForecast.h"
@@ -47,6 +47,129 @@ SOFTWARE.
 #include "WeatherStationFonts.h"
 #include "WeatherStationImages.h"
 
+//#define OLED_DISPLAY_UI    // comment this out to use lite weight inplace replacement of OLEDDisplayUi
+// tradeoffs 
+// OLEDDisplayUi has nice frame replacement transitions (which is on the other hand eye too much eye attracting)
+// OLEDDisplayUi has nice indicator of selected frame (which is on the othre hand taking valuable screen space)
+// OLEDDisplayUi has extra time and temperature indicator (which on the other hand making the scree even more crowded)
+
+#ifdef OLED_DISPLAY_UI
+#include "OLEDDisplayUi.h"
+#define State OLEDDisplayUiState 
+#else 
+// ***** Lite weight OLEDDisplayUi implementation
+
+enum frame_measure_type {
+  FRAME_MEASURE
+};
+
+enum t_position {
+  TOP, LEFT, BOTTOM, RIGHT
+};
+enum t_indicator_dir {
+  LEFT_RIGHT
+};
+enum t_slide_dir {
+  SLIDE_LEFT, SLIDE_RIGHT, SLIDE_TOP, SLIDE_DOWN
+};
+
+enum FrameState {
+  IN_TRANSITION,
+  FIXED
+};
+
+struct OLEDDisplayUiState {
+  uint64_t     lastUpdate;
+  uint16_t      ticksSinceLastStateSwitch;
+
+  FrameState    frameState; 
+  uint8_t       currentFrame;
+  bool          isIndicatorDrawn;
+
+  // Normal = 1, Inverse = -1;
+  int8_t        frameTransitionDirection;
+  bool          manualControl;
+
+  // Custom data that can be used by the user
+  void*         userData;
+};
+
+typedef void (*FrameCallback)(OLEDDisplay *display,  OLEDDisplayUiState* state, int16_t x, int16_t y);
+typedef void (*OverlayCallback)(OLEDDisplay *display,  OLEDDisplayUiState* state);
+
+class UI {
+  FrameCallback*      frameFunctions;
+  uint8_t             frameCount;
+
+  // Internally used to transition to a specific frame
+  int8_t              nextFrameNumber;
+  int8_t              currentFrame;
+
+  OverlayCallback*    overlayFunctions;
+  uint8_t             overlayCount;
+
+  OLEDDisplay          *display;
+  OLEDDisplayUiState   state;
+
+
+public:  
+  UI(OLEDDisplay *displaypar) {
+    display = displaypar;
+    currentFrame=0;
+  }
+
+  void init(){
+    this->display->init();
+  };
+  
+  int16_t update(){
+    Serial.println("****** updating");
+    display->clear();
+    frameFunctions[currentFrame](display, &state, 0, 0);
+    display->display();
+    return(1);
+  };
+
+  void enableAutoTransition(){};
+  void disableAutoTransition(){};  // no other frames amart of measurements make sense 
+  void switchToFrame(frame_measure_type par){
+    currentFrame=0;
+  };     // frame with measurements
+  void setTimePerFrame(int par1){};
+  void setTargetFPS(int ftps){};
+  void setActiveSymbol(const uint8_t* symbol ){};
+  void setInactiveSymbol(const uint8_t* symbol ){};
+  void setIndicatorPosition(t_position par1){}; // can be TOP, LEFT, BOTTOM, RIGHT
+  void setIndicatorDirection(t_indicator_dir par1){};
+  void setFrameAnimation(t_slide_dir par1){}; // SLIDE_LEFT, SLIDE_RIGHT, SLIDE_TOP, SLIDE_DOWN
+  void setFrames(FrameCallback* frameFunctionsPar, uint8_t frameCountPar){
+      frameFunctions = frameFunctionsPar;
+      frameCount     = frameCountPar;
+      //resetState();
+  };
+  void setOverlays(OverlayCallback* overlayFunctions, uint8_t overlayCount){
+    overlayFunctions = overlayFunctions;
+    overlayCount     = overlayCount;
+  }
+  void nextFrame(){
+    currentFrame++;
+    if  (currentFrame >= frameCount)  currentFrame=0;
+  }
+  void previousFrame(){
+    currentFrame--;
+    if  (currentFrame == 1)  currentFrame= frameCount;
+    else currentFrame--;
+  };
+  void switchToFrame(uint8_t framePar){
+    currentFrame=framePar;
+  };
+ 
+  OLEDDisplayUiState* getUiState(){};
+
+};
+// ***** end of Light weight OLEDDisplayUi implementation
+
+#endif
 
 /***************************
  * Configuration
@@ -118,7 +241,12 @@ Adafruit_Sensor *pressureBMP280 = bmp280.getPressureSensor();
 
 // Initialize the oled display for address 0x3c
 SSD1306Wire     display(I2C_DISPLAY_ADDRESS, SDA_PIN, SDC_PIN);
+
+#ifdef OLED_DISPLAY_UI
 OLEDDisplayUi   ui( &display );
+#else 
+UI   ui( &display );
+#endif
 
 // Variables to hold measured values 
 float humidityDHT11 = 0.0;
@@ -154,12 +282,6 @@ void drawMeasured(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, in
 void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState* state);
 void setReadyForWeatherUpdate();
 
-// This array keeps function pointers to all frames
-FrameCallback frames[] = { drawDateTime, drawCurrentWeather, drawForecast, drawMeasured };
-int numberOfFrames = 4;
-
-OverlayCallback overlays[] = { drawHeaderOverlay };
-int numberOfOverlays = 1;
 
 //*********************************************************
 //***************** UPDATE
@@ -228,9 +350,7 @@ void updateBMP280() {
                       Adafruit_BMP280::SAMPLING_X16,    // Pressure oversampling 
                       Adafruit_BMP280::FILTER_X16,      // Filtering. 
                       Adafruit_BMP280::STANDBY_MS_500); // Standby time. 
-                      
-      temperatureBMP280->printSensorDetails();
-      
+                       
     }  
   }
   temperatureBMP280->getEvent(&temperatureEventBMP280);
@@ -321,6 +441,7 @@ void drawProgress(OLEDDisplay *display, int percentage, String label) {
 }
 
 void drawDateTime(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
+  Serial.println("****** drawDateTime");
   now = time(nullptr);
   struct tm* timeInfo;
   timeInfo = localtime(&now);
@@ -340,6 +461,7 @@ void drawDateTime(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, in
 }
 
 void drawCurrentWeather(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
+  Serial.println("****** drawCurrentWeather");
   display->setFont(ArialMT_Plain_10);
   display->setTextAlignment(TEXT_ALIGN_CENTER);
   display->drawString(64 + x, 38 + y, currentWeather.description);
@@ -355,6 +477,7 @@ void drawCurrentWeather(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t
 }
 
 void drawForecast(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
+  Serial.println("****** drawForecast");
   drawForecastDetails(display, x, y, 0);
   drawForecastDetails(display, x + 44, y, 1);
   drawForecastDetails(display, x + 88, y, 2);
@@ -378,13 +501,12 @@ void drawMeasured(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, in
   display->drawString(x, 35 + y, String(luxBH1750, 1) +"lx");
   // The second column
   display->drawString(x + 64, 5 + y, String(temperatureEventBMP280.temperature) + (IS_METRIC ? "°C" : "°F"));
-  display->drawString(x + 64, 20 + y, String(pressureEventBMP280.pressure) +"hPa");
-  //display->drawString(x + 64, 35 + y, String(0) +"--");
-  
+  display->drawString(x + 64, 20 + y, String(pressureEventBMP280.pressure) +"hPa");  
 }
 
 void drawForecastDetails(OLEDDisplay *display, int x, int y, int dayIndex) {
-  time_t observationTimestamp = forecasts[dayIndex].observationTime;
+  Serial.println("****** drawForecast");
+ time_t observationTimestamp = forecasts[dayIndex].observationTime;
   struct tm* timeInfo;
   timeInfo = localtime(&observationTimestamp);
   display->setTextAlignment(TEXT_ALIGN_CENTER);
@@ -415,6 +537,11 @@ void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState* state) {
   display->drawString(128, 54, temp);
   display->drawHorizontalLine(0, 52, 128);
 }
+
+FrameCallback frames[] = { drawDateTime, drawCurrentWeather, drawForecast, drawMeasured };
+int numberOfFrames = 4;
+OverlayCallback overlays[] = { drawHeaderOverlay };
+int numberOfOverlays = 1;
 
 //*********************************************************
 //***************** SETUP
@@ -471,6 +598,8 @@ void setup() {
   delay(500);
 
   // Setup frame based ui
+  
+    Serial.println("Before ui set");
   ui.setTargetFPS(30);
   ui.setActiveSymbol(activeSymbole);
   ui.setInactiveSymbol(inactiveSymbole);
@@ -488,11 +617,16 @@ void setup() {
     ui.disableAutoTransition();  // no other frames amart of measurements make sense 
     ui.switchToFrame(FRAME_MEASURE);     // frame with measurements
   }
+      Serial.println("Before ui.init");
+
   ui.init();
+      Serial.println("After ui.init");
+
   updateData(&display); // Get time, current weather and weather forecast from open weather map
   updateDHT11();        // Make first measurements
   updateBH1750();
   //updateBMP280();     // This measures but resets controller for some reason not clear to me yet. It seems like conflict with UI library?
+    Serial.println("After update");
 
   timeSinceLastWUpdate= millis();
   timeSinceMeasured  = millis();
@@ -500,8 +634,7 @@ void setup() {
 
   display.clear();
   display.display();
-
-}
+ }
 
 //*********************************************************
 //***************** LOOP
@@ -558,7 +691,7 @@ void loop() {
     Serial.println("****** Measuring");
     updateDHT11();
     updateBH1750();
-    //updateBMP280();      // This measures but resets controller for some reason not clear to me yet. It seems like conflict with UI library?
+    updateBMP280();      // This measures but resets controller for some reason not clear to me yet. It seems like conflict with UI library?
 
     timeSinceMeasured  = millis();
   }
